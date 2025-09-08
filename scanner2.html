@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Scanner</title>
+    <style>
+        :root {
+            --bg-color: #1a202c; --card-color: #2d3748; --text-color: #e2e8f0;
+            --primary-color: #38b2ac; --primary-hover: #4fd1c5; --success-color: #48bb78;
+            --error-color: #f56565; --border-color: #4a5568;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color); color: var(--text-color); display: flex;
+            justify-content: center; align-items: center; min-height: 100vh;
+            margin: 0; padding: 1rem; box-sizing: border-box;
+        }
+        .container { width: 100%; max-width: 500px; }
+        .card {
+            background-color: var(--card-color); border-radius: 0.75rem; padding: 2rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            text-align: center; border: 1px solid var(--border-color);
+        }
+        h1 { color: var(--primary-color); margin-bottom: 1.5rem; }
+        label { display: block; text-align: left; margin-bottom: 0.5rem; font-weight: 500; }
+        select, input, button {
+            width: 100%; padding: 0.75rem 1rem; border-radius: 0.5rem;
+            border: 1px solid var(--border-color); background-color: #1a202c;
+            color: var(--text-color); font-size: 1rem; box-sizing: border-box;
+        }
+        select { margin-bottom: 1.5rem; }
+        button {
+            background-color: var(--primary-color); color: #fff; border: none;
+            font-weight: bold; cursor: pointer; transition: background-color 0.2s;
+        }
+        button:hover { background-color: var(--primary-hover); }
+        #scanner-container {
+            width: 100%; max-width: 400px; margin: 1.5rem auto 0;
+            border: 1px solid var(--border-color); border-radius: 0.5rem;
+            overflow: hidden; aspect-ratio: 1 / 1;
+        }
+        #status { margin-top: 1.5rem; min-height: 24px; font-weight: bold; transition: color 0.3s; }
+        .status-success { color: var(--success-color); }
+        .status-error { color: var(--error-color); }
+        .status-info { color: #63b3ed; }
+        #setup-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8); display: flex;
+            justify-content: center; align-items: center; z-index: 1000;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="main-content" class="card hidden">
+            <h1>Sample Scanner</h1>
+            <label for="destination">Export Destination:</label>
+            <select id="destination">
+                <!-- This is the new placeholder option -->
+                <option value="" selected disabled>-- Choose export destination --</option>
+                <option value="CropNuts">CropNuts</option>
+                <option value="KALRO">KALRO</option>
+                <option value="SSS">SSS</option>
+            </select>
+            <div id="scanner-container"></div>
+            <div id="status">Ready to scan...</div>
+        </div>
+    </div>
+    <div id="setup-overlay">
+        <div class="card">
+            <h1>Setup Required</h1>
+            <p style="margin-bottom:1rem; opacity: 0.8;">Please paste your Google Apps Script Web App URL below.</p>
+            <input type="text" id="script-url-input" placeholder="https://script.google.com/macros/s/..." style="margin-bottom:1rem;">
+            <button id="save-url-btn">Save and Start Scanning</button>
+        </div>
+    </div>
+    <script src="https://unpkg.com/html5-qrcode/html5-qrcode.min.js"></script>
+    <script>
+        const setupOverlay = document.getElementById('setup-overlay');
+        const mainContent = document.getElementById('main-content');
+        const scriptUrlInput = document.getElementById('script-url-input');
+        const saveUrlBtn = document.getElementById('save-url-btn');
+        const destinationSelect = document.getElementById('destination');
+        const statusDiv = document.getElementById('status');
+        let scriptUrl = localStorage.getItem('scriptUrl');
+
+        function showStatus(message, type = 'info', duration = 3000) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status-${type}`;
+            if (duration) {
+                setTimeout(() => {
+                    statusDiv.textContent = 'Ready to scan...';
+                    statusDiv.className = 'status-info';
+                }, duration);
+            }
+        }
+
+        async function onScanSuccess(decodedText, decodedResult) {
+            const selectedDestination = destinationSelect.value;
+            // This check prevents scanning if the placeholder is selected
+            if (!selectedDestination) {
+                showStatus('Please select a destination.', 'error');
+                return;
+            }
+            showStatus(`Processing: ${decodedText}`, 'info', null);
+            try {
+                const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    showStatus(`✅ Exported: ${result.id}`, 'success');
+                } else {
+                    throw new Error(result.message || 'ID not found');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function startScanner() {
+            const html5QrCode = new Html5Qrcode("scanner-container");
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .catch(err => {
+                    console.error("Unable to start scanning.", err);
+                    showStatus('Could not start camera.', 'error');
+                });
+        }
+
+        saveUrlBtn.addEventListener('click', () => {
+            const url = scriptUrlInput.value.trim();
+            if (url && url.startsWith('https://script.google.com/macros/s/')) {
+                localStorage.setItem('scriptUrl', url);
+                scriptUrl = url;
+                setupOverlay.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                startScanner();
+            } else {
+                alert('Please enter a valid Google Apps Script URL.');
+            }
+        });
+
+        if (scriptUrl) {
+            setupOverlay.classList.add('hidden');
+            mainContent.classList.remove('hidden');
+            startScanner();
+        }
+    </script>
+</body>
+</html>
