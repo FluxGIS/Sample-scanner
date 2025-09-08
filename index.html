@@ -97,27 +97,28 @@
             }
         }
 
-        async function onScanSuccess(decodedText, decodedResult) {
-            const selectedDestination = destinationSelect.value;
-            // This check prevents scanning if the placeholder is selected
-            if (!selectedDestination) {
-                showStatus('Please select a destination.', 'error');
-                return;
-            }
-            showStatus(`Processing: ${decodedText}`, 'info', null);
-            try {
-                const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
-                const result = await response.json();
-                if (result.status === 'success') {
-                    showStatus(`✅ Exported: ${result.id}`, 'success');
-                } else {
-                    throw new Error(result.message || 'ID not found');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                showStatus(`❌ Error: ${error.message}`, 'error');
-            }
+    async function onScanSuccess(decodedText, decodedResult) {
+      const selectedDestination = destinationSelect.value;
+      if (!selectedDestination) {
+        showStatus('Please select a destination.', 'error', null); // CHANGED: Added null
+        return;
+    }
+    showStatus(`Processing: ${decodedText}`, 'info', null);
+    try {
+        const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
+        const result = await response.json();
+        if (result.status === 'success') {
+            // THE CHANGE IS HERE: duration is now null, so it will not reset.
+            showStatus(`✅ Exported: ${result.id}`, 'success', null);
+        } else {
+            throw new Error(result.message || 'ID not found');
         }
+    } catch (error) {
+        console.error('Error:', error);
+         // AND HERE: duration is now null for errors too.
+        showStatus(`❌ Error: ${error.message}`, 'error', null);
+    }
+     }
 
         function startScanner() {
             const html5QrCode = new Html5Qrcode("scanner-container");
