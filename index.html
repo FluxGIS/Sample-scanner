@@ -50,6 +50,14 @@
             justify-content: center; align-items: center; z-index: 1000;
         }
         .hidden { display: none !important; }
+        /* NEW STYLES for the Scan Next button */
+        #scan-next-btn {
+            margin-top: 1.5rem;
+            background-color: #dd6b20; /* Orange color */
+        }
+        #scan-next-btn:hover {
+            background-color: #f6ad55;
+        }
     </style>
 </head>
 <body>
@@ -58,7 +66,6 @@
             <h1>Sample Scanner</h1>
             <label for="destination">Export Destination:</label>
             <select id="destination">
-                <!-- This is the new placeholder option -->
                 <option value="" selected disabled>-- Choose export destination --</option>
                 <option value="CropNuts">CropNuts</option>
                 <option value="KALRO">KALRO</option>
@@ -66,6 +73,8 @@
             </select>
             <div id="scanner-container"></div>
             <div id="status">Ready to scan...</div>
+            <!-- NEW "Scan Next" button, initially hidden -->
+            <button id="scan-next-btn" class="hidden">Scan Next Sample</button>
         </div>
     </div>
     <div id="setup-overlay">
@@ -84,44 +93,53 @@
         const saveUrlBtn = document.getElementById('save-url-btn');
         const destinationSelect = document.getElementById('destination');
         const statusDiv = document.getElementById('status');
+        const scannerContainer = document.getElementById('scanner-container');
+        const scanNextBtn = document.getElementById('scan-next-btn'); // NEW button reference
         let scriptUrl = localStorage.getItem('scriptUrl');
+        let html5QrCode; // NEW: make scanner object globally accessible
 
-        function showStatus(message, type = 'info', duration = 3000) {
+        function showStatus(message, type = 'info') {
             statusDiv.textContent = message;
             statusDiv.className = `status-${type}`;
-            if (duration) {
-                setTimeout(() => {
-                    statusDiv.textContent = 'Ready to scan...';
-                    statusDiv.className = 'status-info';
-                }, duration);
+        }
+        
+        // NEW onScanSuccess function with optimistic updates and pause/resume logic
+        async function onScanSuccess(decodedText, decodedResult) {
+            // 1. Pause the scanner immediately to prevent re-scans
+            html5QrCode.pause(true);
+
+            const selectedDestination = destinationSelect.value;
+            if (!selectedDestination) {
+                showStatus('Please select a destination.', 'error');
+                scanNextBtn.classList.remove('hidden'); // Show button even on error
+                return;
+            }
+
+            // 2. Optimistic UI Update: Show success message immediately
+            showStatus(`✅ Exported: ${decodedText}`, 'success');
+            
+            // 3. Show the "Scan Next" button
+            scanNextBtn.classList.remove('hidden');
+
+            // 4. Send the request to Google in the background
+            try {
+                const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
+                const result = await response.json();
+                
+                // 5. If it fails, correct the UI to show an error message
+                if (result.status !== 'success') {
+                    throw new Error(result.message || 'ID not found');
+                }
+                // If successful, do nothing - the UI already shows success.
+            } catch (error) {
+                console.error('Error:', error);
+                // Rollback: Correct the UI if the background task failed
+                showStatus(`❌ Error: ${error.message}`, 'error');
             }
         }
 
-    async function onScanSuccess(decodedText, decodedResult) {
-      const selectedDestination = destinationSelect.value;
-      if (!selectedDestination) {
-        showStatus('Please select a destination.', 'error', null); // CHANGED: Added null
-        return;
-    }
-    showStatus(`Processing: ${decodedText}`, 'info', null);
-    try {
-        const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
-        const result = await response.json();
-        if (result.status === 'success') {
-            // THE CHANGE IS HERE: duration is now null, so it will not reset.
-            showStatus(`✅ Exported: ${result.id}`, 'success', null);
-        } else {
-            throw new Error(result.message || 'ID not found');
-        }
-    } catch (error) {
-        console.error('Error:', error);
-         // AND HERE: duration is now null for errors too.
-        showStatus(`❌ Error: ${error.message}`, 'error', null);
-    }
-     }
-
         function startScanner() {
-            const html5QrCode = new Html5Qrcode("scanner-container");
+            html5QrCode = new Html5Qrcode("scanner-container");
             const config = { fps: 10, qrbox: { width: 250, height: 250 } };
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
                 .catch(err => {
@@ -129,6 +147,13 @@
                     showStatus('Could not start camera.', 'error');
                 });
         }
+        
+        // NEW: Event listener for the "Scan Next" button
+        scanNextBtn.addEventListener('click', () => {
+            html5QrCode.resume();
+            showStatus('Ready to scan...', 'info');
+            scanNextBtn.classList.add('hidden');
+        });
 
         saveUrlBtn.addEventListener('click', () => {
             const url = scriptUrlInput.value.trim();
