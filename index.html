@@ -20,8 +20,15 @@
         .card {
             background-color: var(--card-color); border-radius: 0.75rem; padding: 2rem;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            text-align: center; border: 1px solid var(--border-color);
+            text-align: center; border: 1px solid var(--border-color); position: relative;
         }
+        /* NEW: Styles for the reset button */
+        #reset-config-btn {
+            position: absolute; top: 1rem; right: 1rem; background: none; border: none;
+            font-size: 1.5rem; cursor: pointer; color: var(--border-color); padding: 0.5rem;
+        }
+        #reset-config-btn:hover { color: var(--text-color); }
+
         h1 { color: var(--primary-color); margin-bottom: 1.5rem; }
         label { display: block; text-align: left; margin-bottom: 0.5rem; font-weight: 500; }
         select, input, button {
@@ -50,10 +57,9 @@
             justify-content: center; align-items: center; z-index: 1000;
         }
         .hidden { display: none !important; }
-        /* NEW STYLES for the Scan Next button */
         #scan-next-btn {
             margin-top: 1.5rem;
-            background-color: #dd6b20; /* Orange color */
+            background-color: #dd6b20;
         }
         #scan-next-btn:hover {
             background-color: #f6ad55;
@@ -63,17 +69,14 @@
 <body>
     <div class="container">
         <div id="main-content" class="card hidden">
+            <button id="reset-config-btn" title="Reset Configuration">⚙️</button>
             <h1>Sample Scanner</h1>
             <label for="destination">Export Destination:</label>
             <select id="destination">
-                <option value="" selected disabled>-- Choose export destination --</option>
-                <option value="CropNuts">CropNuts</option>
-                <option value="KALRO">KALRO</option>
-                <option value="SSS">SSS</option>
+                 <option value="" selected disabled>-- Choose export destination --</option>
             </select>
             <div id="scanner-container"></div>
             <div id="status">Ready to scan...</div>
-            <!-- NEW "Scan Next" button, initially hidden -->
             <button id="scan-next-btn" class="hidden">Scan Next Sample</button>
         </div>
     </div>
@@ -94,46 +97,58 @@
         const destinationSelect = document.getElementById('destination');
         const statusDiv = document.getElementById('status');
         const scannerContainer = document.getElementById('scanner-container');
-        const scanNextBtn = document.getElementById('scan-next-btn'); // NEW button reference
+        const scanNextBtn = document.getElementById('scan-next-btn'); 
+        const resetConfigBtn = document.getElementById('reset-config-btn'); // NEW reset button
         let scriptUrl = localStorage.getItem('scriptUrl');
-        let html5QrCode; // NEW: make scanner object globally accessible
+        let html5QrCode; 
 
         function showStatus(message, type = 'info') {
             statusDiv.textContent = message;
             statusDiv.className = `status-${type}`;
         }
-        
-        // NEW onScanSuccess function with optimistic updates and pause/resume logic
-        async function onScanSuccess(decodedText, decodedResult) {
-            // 1. Pause the scanner immediately to prevent re-scans
-            html5QrCode.pause(true);
 
+        async function fetchDestinations() {
+            if (!scriptUrl) return;
+            try {
+                const response = await fetch(`${scriptUrl}?meta=destinations`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                
+                destinationSelect.innerHTML = '<option value="" selected disabled>-- Choose export destination --</option>';
+                if (data.destinations && data.destinations.length > 0) {
+                    data.destinations.forEach(dest => {
+                        const option = document.createElement('option');
+                        option.value = dest;
+                        option.textContent = dest;
+                        destinationSelect.appendChild(option);
+                    });
+                } else {
+                     showStatus('No destinations found in sheet', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to load destinations:', error);
+                showStatus('⚠️ Could not load destination list', 'error');
+            }
+        }
+        
+        async function onScanSuccess(decodedText, decodedResult) {
+            html5QrCode.pause(true);
             const selectedDestination = destinationSelect.value;
             if (!selectedDestination) {
                 showStatus('Please select a destination.', 'error');
-                scanNextBtn.classList.remove('hidden'); // Show button even on error
+                scanNextBtn.classList.remove('hidden');
                 return;
             }
-
-            // 2. Optimistic UI Update: Show success message immediately
             showStatus(`✅ Exported: ${decodedText}`, 'success');
-            
-            // 3. Show the "Scan Next" button
             scanNextBtn.classList.remove('hidden');
-
-            // 4. Send the request to Google in the background
             try {
                 const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
                 const result = await response.json();
-                
-                // 5. If it fails, correct the UI to show an error message
                 if (result.status !== 'success') {
                     throw new Error(result.message || 'ID not found');
                 }
-                // If successful, do nothing - the UI already shows success.
             } catch (error) {
                 console.error('Error:', error);
-                // Rollback: Correct the UI if the background task failed
                 showStatus(`❌ Error: ${error.message}`, 'error');
             }
         }
@@ -148,9 +163,10 @@
                 });
         }
         
-        // NEW: Event listener for the "Scan Next" button
         scanNextBtn.addEventListener('click', () => {
-            html5QrCode.resume();
+            if(html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.resume();
+            }
             showStatus('Ready to scan...', 'info');
             scanNextBtn.classList.add('hidden');
         });
@@ -162,15 +178,25 @@
                 scriptUrl = url;
                 setupOverlay.classList.add('hidden');
                 mainContent.classList.remove('hidden');
+                fetchDestinations();
                 startScanner();
             } else {
                 alert('Please enter a valid Google Apps Script URL.');
+            }
+        });
+        
+        // NEW: Event listener for the reset button
+        resetConfigBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to reset the configuration and enter a new URL?')) {
+                localStorage.removeItem('scriptUrl');
+                location.reload();
             }
         });
 
         if (scriptUrl) {
             setupOverlay.classList.add('hidden');
             mainContent.classList.remove('hidden');
+            fetchDestinations();
             startScanner();
         }
     </script>
