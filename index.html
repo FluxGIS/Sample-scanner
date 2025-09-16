@@ -69,13 +69,20 @@
         <div id="main-content" class="card hidden">
             <button id="reset-config-btn" title="Reset Configuration">⚙️</button>
             <h1>Sample Scanner</h1>
+            
+            <label for="sheet">Select Sheet:</label>
+            <select id="sheet">
+                 <option value="" selected disabled>-- Loading sheets... --</option>
+            </select>
+
             <label for="destination">Export Destination:</label>
             <select id="destination">
                  <option value="" selected disabled>-- Choose export destination --</option>
                  <option value="CropNuts">CropNuts</option>
                  <option value="KALRO">KALRO</option>
                  <option value="SGS">SGS</option>
-                 <option value="ETH Zürich">ETH Zürich</option>
+                 <option value="ETH Zurich">ETH Zurich</option>
+                 <option value="Not Exported">Not Exported</option>
             </select>
             <div id="scanner-container"></div>
             <div id="status">Ready to scan...</div>
@@ -96,6 +103,7 @@
         const mainContent = document.getElementById('main-content');
         const scriptUrlInput = document.getElementById('script-url-input');
         const saveUrlBtn = document.getElementById('save-url-btn');
+        const sheetSelect = document.getElementById('sheet');
         const destinationSelect = document.getElementById('destination');
         const statusDiv = document.getElementById('status');
         const scanNextBtn = document.getElementById('scan-next-btn'); 
@@ -107,19 +115,40 @@
             statusDiv.textContent = message;
             statusDiv.className = `status-${type}`;
         }
+
+        async function fetchSheetNames() {
+            if (!scriptUrl) return;
+            try {
+                const response = await fetch(`${scriptUrl}?meta=sheets`);
+                const data = await response.json();
+                sheetSelect.innerHTML = '<option value="" selected disabled>-- Select a Sheet --</option>';
+                if (data.sheets && data.sheets.length > 0) {
+                    data.sheets.forEach(name => {
+                        const option = document.createElement('option');
+                        option.value = name;
+                        option.textContent = name;
+                        sheetSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load sheets:', error);
+                showStatus('⚠️ Could not load sheet list', 'error');
+            }
+        }
         
         async function onScanSuccess(decodedText, decodedResult) {
             html5QrCode.pause(true);
+            const selectedSheet = sheetSelect.value;
             const selectedDestination = destinationSelect.value;
-            if (!selectedDestination) {
-                showStatus('Please select a destination.', 'error');
+            if (!selectedSheet || !selectedDestination) {
+                showStatus('Please select a sheet and destination.', 'error');
                 scanNextBtn.classList.remove('hidden');
                 return;
             }
             showStatus(`✅ Exported: ${decodedText}`, 'success');
             scanNextBtn.classList.remove('hidden');
             try {
-                const response = await fetch(`${scriptUrl}?id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
+                const response = await fetch(`${scriptUrl}?sheet=${encodeURIComponent(selectedSheet)}&id=${encodeURIComponent(decodedText)}&destination=${encodeURIComponent(selectedDestination)}`);
                 const result = await response.json();
                 if (result.status !== 'success') {
                     throw new Error(result.message || 'ID not found');
@@ -140,40 +169,41 @@
                 });
         }
         
-        scanNextBtn.addEventListener('click', () => {
+        scanNextBtn.addEventListener('click', () => { 
             if(html5QrCode && html5QrCode.isScanning) {
                 html5QrCode.resume();
             }
             showStatus('Ready to scan...', 'info');
             scanNextBtn.classList.add('hidden');
-        });
+         });
 
-        saveUrlBtn.addEventListener('click', () => {
+        saveUrlBtn.addEventListener('click', () => { 
             const url = scriptUrlInput.value.trim();
             if (url && url.includes('/macros/s/')) {
                 localStorage.setItem('scriptUrl', url);
                 scriptUrl = url;
                 setupOverlay.classList.add('hidden');
                 mainContent.classList.remove('hidden');
+                fetchSheetNames();
                 startScanner();
             } else {
                 alert('Please enter a valid Google Apps Script URL.');
             }
-        });
-        
-        resetConfigBtn.addEventListener('click', () => {
+         });
+         
+        resetConfigBtn.addEventListener('click', () => { 
             if (confirm('Are you sure you want to reset the configuration and enter a new URL?')) {
                 localStorage.removeItem('scriptUrl');
                 location.reload();
             }
-        });
+         });
 
         if (scriptUrl) {
             setupOverlay.classList.add('hidden');
             mainContent.classList.remove('hidden');
+            fetchSheetNames(); // Load the sheet names on startup
             startScanner();
         }
     </script>
 </body>
 </html>
-
