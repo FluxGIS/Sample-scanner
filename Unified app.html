@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Scanner</title>
+    <style>
+        :root {
+            --bg-color: #1a202c; --card-color: #2d3748; --text-color: #e2e8f0;
+            --primary-color: #38b2ac; --primary-hover: #4fd1c5; --success-color: #48bb78;
+            --error-color: #f56565; --border-color: #4a5568;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color); color: var(--text-color); display: flex;
+            justify-content: center; align-items: center; min-height: 100vh;
+            margin: 0; padding: 1rem; box-sizing: border-box;
+        }
+        .container { width: 100%; max-width: 500px; }
+        .card {
+            background-color: var(--card-color); border-radius: 0.75rem; padding: 2rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            text-align: center; border: 1px solid var(--border-color); position: relative;
+        }
+        #reset-config-btn {
+            position: absolute; top: 1rem; right: 1rem; background: none; border: none;
+            font-size: 1.5rem; cursor: pointer; color: var(--border-color); padding: 0.5rem;
+        }
+        #reset-config-btn:hover { color: var(--text-color); }
+        h1 { color: var(--primary-color); margin-bottom: 1.5rem; }
+        label { display: block; text-align: left; margin-bottom: 0.5rem; font-weight: 500; }
+        select, input, button {
+            width: 100%; padding: 0.75rem 1rem; border-radius: 0.5rem;
+            border: 1px solid var(--border-color); background-color: #1a202c;
+            color: var(--text-color); font-size: 1rem; box-sizing: border-box;
+        }
+        select { margin-bottom: 1.5rem; }
+        button {
+            background-color: var(--primary-color); color: #fff; border: none;
+            font-weight: bold; cursor: pointer; transition: background-color 0.2s;
+        }
+        button:hover { background-color: var(--primary-hover); }
+        #scanner-container {
+            width: 100%; max-width: 400px; margin: 1.5rem auto 0;
+            border: 1px solid var(--border-color); border-radius: 0.5rem;
+            overflow: hidden; aspect-ratio: 1 / 1;
+        }
+        #status { margin-top: 1.5rem; min-height: 24px; font-weight: bold; transition: color 0.3s; }
+        .status-success { color: var(--success-color); }
+        .status-error { color: var(--error-color); }
+        .status-info { color: #63b3ed; }
+        #setup-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8); display: flex;
+            justify-content: center; align-items: center; z-index: 1000;
+        }
+        .hidden { display: none !important; }
+        #scan-next-btn {
+            margin-top: 1.5rem;
+            background-color: #dd6b20;
+        }
+        #scan-next-btn:hover {
+            background-color: #f6ad55;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="main-content" class="card hidden">
+            <button id="reset-config-btn" title="Reset Configuration">⚙️</button>
+            <h1>Sample Scanner</h1>
+            
+            <!-- NEW: Mode Selector -->
+            <label for="mode">Select Mode:</label>
+            <select id="mode">
+                 <option value="" selected disabled>-- Select a task --</option>
+                 <option value="log">Log New Sample</option>
+                 <option value="update">Update Export Status</option>
+            </select>
+            
+            <label for="sheet">Select Sheet:</label>
+            <select id="sheet">
+                 <option value="" selected disabled>-- Select a mode first --</option>
+            </select>
+
+            <!-- This dropdown will be shown/hidden based on the mode -->
+            <div id="destination-wrapper" class="hidden">
+                <label for="destination">Export Destination:</label>
+                <select id="destination">
+                     <option value="" selected disabled>-- Choose export destination --</option>
+                     <option value="CropNuts">CropNuts</option>
+                     <option value="KALRO">KALRO</option>
+                     <option value="SGS">SGS</option>
+                     <option value="ETH Zurich">ETH Zurich</option>
+                     <option value="Not Exported">Not Exported</option>
+                </select>
+            </div>
+
+            <div id="scanner-container"></div>
+            <div id="status">Ready to scan...</div>
+            <button id="scan-next-btn" class="hidden">Scan Next Sample</button>
+        </div>
+    </div>
+    <div id="setup-overlay">
+        <div class="card">
+            <h1>Setup Required</h1>
+            <p style="margin-bottom:1rem; opacity: 0.8;">Please paste your Google Apps Script Web App URL below.</p>
+            <input type="text" id="script-url-input" placeholder="https://script.google.com/macros/s/..." style="margin-bottom:1rem;">
+            <button id="save-url-btn">Save and Start Scanning</button>
+        </div>
+    </div>
+    <script src="https://unpkg.com/html5-qrcode/html5-qrcode.min.js"></script>
+    <script>
+        const setupOverlay = document.getElementById('setup-overlay');
+        const mainContent = document.getElementById('main-content');
+        const scriptUrlInput = document.getElementById('script-url-input');
+        const saveUrlBtn = document.getElementById('save-url-btn');
+        const modeSelect = document.getElementById('mode');
+        const sheetSelect = document.getElementById('sheet');
+        const destinationWrapper = document.getElementById('destination-wrapper');
+        const destinationSelect = document.getElementById('destination');
+        const statusDiv = document.getElementById('status');
+        const scanNextBtn = document.getElementById('scan-next-btn'); 
+        const resetConfigBtn = document.getElementById('reset-config-btn');
+        let scriptUrl = localStorage.getItem('scriptUrl'); // Use the main scriptUrl
+        let html5QrCode; 
+
+        function showStatus(message, type = 'info') {
+            statusDiv.textContent = message;
+            statusDiv.className = `status-${type}`;
+        }
+
+        async function fetchSheetNames() {
+            if (!scriptUrl) return;
+            sheetSelect.innerHTML = '<option value="" selected disabled>-- Loading sheets... --</option>';
+            try {
+                const response = await fetch(`${scriptUrl}?meta=sheets`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                
+                sheetSelect.innerHTML = '<option value="" selected disabled>-- Select a Sheet --</option>';
+                if (data.sheets && data.sheets.length > 0) {
+                    data.sheets.forEach(name => {
+                        const option = document.createElement('option');
+                        option.value = name;
+                        option.textContent = name;
+                        sheetSelect.appendChild(option);
+                    });
+                } else {
+                     showStatus('No sheets found to scan.', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to load sheets:', error);
+                showStatus('⚠️ Could not load sheet list', 'error');
+            }
+        }
+        
+        async function onScanSuccess(decodedText, decodedResult) {
+            html5QrCode.pause(true);
+            const selectedMode = modeSelect.value;
+            const selectedSheet = sheetSelect.value;
+            const selectedDestination = destinationSelect.value;
+
+            // Check required fields based on mode
+            if (!selectedMode || !selectedSheet) {
+                showStatus('Please select a Mode and Sheet.', 'error');
+                scanNextBtn.classList.remove('hidden');
+                return;
+            }
+            if (selectedMode === 'update' && !selectedDestination) {
+                showStatus('Please select an Export Destination.', 'error');
+                scanNextBtn.classList.remove('hidden');
+                return;
+            }
+
+            // Optimistic update
+            const successMessage = (selectedMode === 'log') ? `✅ Logged: ${decodedText}` : `✅ Updated: ${decodedText}`;
+            showStatus(successMessage, 'success');
+            scanNextBtn.classList.remove('hidden');
+
+            try {
+                // Build the URL with the correct 'action' parameter
+                let fetchUrl = `${scriptUrl}?action=${selectedMode}&sheet=${encodeURIComponent(selectedSheet)}&id=${encodeURIComponent(decodedText)}`;
+                if (selectedMode === 'update') {
+                    fetchUrl += `&destination=${encodeURIComponent(selectedDestination)}`;
+                }
+                
+                const response = await fetch(fetchUrl);
+                const result = await response.json();
+                if (result.status !== 'success') {
+                    throw new Error(result.message || 'An error occurred');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                // Rollback if the background task fails
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function startScanner() {
+            html5QrCode = new Html5Qrcode("scanner-container");
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .catch(err => {
+                    console.error("Unable to start scanning.", err);
+                    showStatus('Could not start camera.', 'error');
+                });
+        }
+        
+        // NEW: Event listener for the Mode selector
+        modeSelect.addEventListener('change', () => {
+            if (modeSelect.value === 'update') {
+                destinationWrapper.classList.remove('hidden');
+            } else {
+                destinationWrapper.classList.add('hidden');
+            }
+            // Enable the sheet selector
+            sheetSelect.innerHTML = '<option value="" selected disabled>-- Loading sheets... --</option>';
+            fetchSheetNames();
+        });
+
+        scanNextBtn.addEventListener('click', () => { 
+            if(html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.resume();
+            }
+            showStatus('Ready to scan...', 'info');
+            scanNextBtn.classList.add('hidden');
+         });
+
+        saveUrlBtn.addEventListener('click', () => { 
+            const url = scriptUrlInput.value.trim();
+            // Updated validation to work with Google Workspace URLs
+            if (url && url.includes('/macros/s/') && url.endsWith('/exec')) {
+                localStorage.setItem('scriptUrl', url); // Use main storage key
+                scriptUrl = url;
+                setupOverlay.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                startScanner();
+            } else {
+                alert('Please enter a valid Google Apps Script URL.');
+            }
+         });
+         
+        resetConfigBtn.addEventListener('click', () => { 
+            if (confirm('Are you sure you want to reset the configuration and enter a new URL?')) {
+                localStorage.removeItem('scriptUrl');
+                location.reload();
+            }
+         });
+
+        if (scriptUrl) {
+            setupOverlay.classList.add('hidden');
+            mainContent.classList.remove('hidden');
+            startScanner();
+        }
+    </script>
+</body>
+</html>
